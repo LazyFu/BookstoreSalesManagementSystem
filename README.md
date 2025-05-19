@@ -5,7 +5,7 @@
 使用Django开发的B/S数据库管理系统，学习[MDN的教程](https://github.com/mdn/django-locallibrary-tutorial)做的
 
 模型如下
-![ER diagram](BookstoreSalesManagementSystem\data\ER_diagram.png)
+![ER diagram](BookstoreSalesManagementSystem/data/ER_diagram.png)
 
 
 ## 开始
