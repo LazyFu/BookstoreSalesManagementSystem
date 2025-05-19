@@ -15,8 +15,8 @@
 pip3 install -r requirement.txt
 # 添加数据
 python3 manage.py makemigrations
-python3 manage.py import_books data/data.json
 python3 manage.py migrate
+python3 manage.py import_books data/data.json
 # 创建用户
 python3 manage.py createsuperuser
 # 运行服务器
