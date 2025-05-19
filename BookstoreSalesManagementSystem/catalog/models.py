@@ -8,17 +8,17 @@ class Book(models.Model):
                             help_text='13 Character <a href="https://www.isbn-international.org/content/what-isbn">ISBN number</a>',
                             primary_key=True)
     title = models.CharField('Title', max_length=100)
-    author = models.CharField('Author', max_length=100)
-    press = models.CharField('Press', max_length=100)
+    author = models.CharField('Author', max_length=100, null=True)
+    press = models.CharField('Press', max_length=100, null=True)
     price = models.DecimalField('Price', decimal_places=2, max_digits=6)  # 四位加两位小数
     stock = models.IntegerField('Stock', default=0)
-    summary = models.TextField('Summary', max_length=1000)
+    summary = models.TextField('Summary', max_length=1000, blank=True, null=True)
 
     def __str__(self):
         return self.title
 
     def get_absolute_url(self):
-        return reverse('book-detail', args=[str(self.isbn)])
+        return reverse('book_detail', args=[str(self.isbn)])
 
 
 class Customer(models.Model):
@@ -44,6 +44,9 @@ class Order(models.Model):
             return 'Paid'
         else:
             return 'Unpaid'
+
+    def get_absolute_url(self):
+        return reverse('order_detail', args=[self.order_id])
 
     def __str__(self):
         return f"Order #{self.order_id} - {self.customer.name} ({self.get_status_display()})"

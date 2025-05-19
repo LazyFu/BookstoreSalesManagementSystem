@@ -1,0 +1,15 @@
+{% extends "base_generic.html" %}
+
+{% block title %}
+  <title>Book Detail</title>
+{% endblock %}
+
+{% block content %}
+  <h1>{{ book.title }}</h1>
+  <p>ISBN: {{ book.isbn }}</p>
+  <p>Summary: {{ book.summary }}</p>
+  <p>Press: {{ book.press }}</p>
+  <p>Price: {{ book.price }}</p>
+  <p>Author: {{ book.author }}</p>
+  <p>Stock: {{ book.stock }}</p>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "base_generic.html" %}
+
+{% block title %}
+  <title>Order Detail</title>
+{% endblock %}
+
+{% block content %}
+  <h1>Order #{{ order.id }}</h1>
+  <p>Customer: {{ order.customer.name }}</p>
+  <p>Date: {{ order.date }}</p>
+  <h2>Items:</h2>
+  <ul>
+    {% for item in order.items.all %}
+      <li>{{ item.book.title }} - {{ item.quantity }}</li>
+    {% endfor %}
+  </ul>
+{% endblock %}
