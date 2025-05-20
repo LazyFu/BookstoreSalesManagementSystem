@@ -21,6 +21,8 @@ python3 manage.py import_books data/data.json
 python3 manage.py createsuperuser
 # 运行服务器
 python3 manage.py runserver
+# 加入购物车15分钟之后没有结算物品过期，恢复库存
+python manage.py restore_stock
 ```
 
 - 在网页`127.0.0.1`可以看到主界面

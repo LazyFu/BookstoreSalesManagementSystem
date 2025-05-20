@@ -1,6 +1,7 @@
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
+from django.utils import timezone
 
 # Create your views here.
 from .models import Book, Order, OrderItem
@@ -36,33 +37,57 @@ class OrderListView(generic.ListView):
 class OrderDetailView(generic.DetailView):
     model = Order
 
+
 # def order_detail(request, order_id):
 #     order = get_object_or_404(Order, id=order_id)
 #     return render(request, 'catalog/order_detail.html', {'order': order})
 #
 #
-# def book_detail(request, book_id):
-#     book = get_object_or_404(Book, id=book_id)
+# def book_detail(request, isbn):
+#     book = get_object_or_404(Book, id=isbn)
 #     return render(request, 'catalog/book_detail.html', {'book': book})
 
-# views.py
-def add_to_cart(request, book_id):
-    book = get_object_or_404(Book, pk=book_id)
-    cart = request.session.get('cart', {})
+# def add_to_cart(request, isbn):
+#     book = get_object_or_404(Book, isbn=isbn)
+#     cart = request.session.get('cart', {})
+#
+#     # 获取用户输入数量（示例）
+#     quantity = int(request.POST.get('quantity', 1))
+#
+#     # 库存校验
+#     if book.stock < (cart.get(str(book.isbn), 0) + quantity):
+#         return JsonResponse({'status': 'error', 'message': '库存不足'})
+#
+#     # 更新购物车
+#     cart[str(book.isbn)] = cart.get(str(book.isbn), 0) + quantity
+#     request.session['cart'] = cart
+#
+#     return JsonResponse({'status': 'success', 'cart_total': sum(cart.values())})
 
-    # 获取用户输入数量（示例）
-    quantity = int(request.POST.get('quantity', 1))
+def add_to_cart(request, isbn):
+    try:
+        book = Book.objects.get(isbn=isbn)
+        quantity = int(request.POST.get('quantity', 1))
 
-    # 库存校验
-    if book.stock < (cart.get(str(book.id), 0) + quantity):
-        return JsonResponse({'status': 'error', 'message': '库存不足'})
+        # 直接扣减总库存
+        with transaction.atomic():
+            if book.stock >= quantity:
+                book.stock -= quantity
+                book.save()
 
-    # 更新购物车
-    cart[str(book.id)] = cart.get(str(book.id), 0) + quantity
-    request.session['cart'] = cart
+                # 记录临时售出状态（使用session）
+                cart = request.session.get('cart', {})
+                cart[book.isbn] = {
+                    'quantity': quantity,
+                    'expires': timezone.now().timestamp() + 900  # 15分钟过期
+                }
+                request.session['cart'] = cart
+                return JsonResponse({'status': 'success'})
 
-    return JsonResponse({'status': 'success', 'cart_total': sum(cart.values())})
+            return JsonResponse({'status': 'error', 'msg': '库存不足'})
 
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'msg': str(e)})
 
 def view_cart(request):
     cart = request.session.get('cart', {})
@@ -70,17 +95,18 @@ def view_cart(request):
     total = 0
 
     # 转换为可操作对象
-    for book_id, qty in cart.items():
-        book = Book.objects.get(id=int(book_id))
-        item_total = book.price * qty
+    for isbn, item in cart.items():
+        book = Book.objects.get(isbn=isbn)
+        quantity = item['quantity']
+        item_total = book.price * quantity
         cart_items.append({
             'book': book,
-            'quantity': qty,
+            'quantity': quantity,
             'total': item_total
         })
         total += item_total
 
-    return render(request, 'cart/session_cart.html', {
+    return render(request, 'catalog/session_cart.html', {
         'cart_items': cart_items,
         'total': total
     })
@@ -95,8 +121,8 @@ def checkout(request):
             total=0  # 需计算真实金额
         )
 
-        for book_id, qty in cart.items():
-            book = Book.objects.select_for_update().get(id=book_id)
+        for isbn, qty in cart.items():
+            book = Book.objects.select_for_update().get(id=isbn)
             # 创建订单项
             OrderItem.objects.create(
                 order=order,
@@ -113,3 +139,40 @@ def checkout(request):
         request.session.modified = True
 
     return redirect(order.get_absolute_url())
+
+def remove_from_cart(request, isbn):
+    cart = request.session.get('cart', {})
+    if isbn in cart:
+        cart.pop(isbn)
+        request.session['cart'] = cart
+        return JsonResponse({'status': 'success'})
+    return JsonResponse({'status': 'error', 'message': '未找到该商品'})
+
+def update_cart(request):
+    cart = request.session.get('cart', {})
+    for key in request.POST:
+        if key.startswith('quantity_'):
+            isbn = key.split('_', 1)[1]
+            try:
+                qty = int(request.POST[key])
+                if qty > 0:
+                    cart[isbn] = qty
+            except ValueError:
+                continue
+    request.session['cart'] = cart
+    return JsonResponse({'status': 'success'})
+
+def update_cart_item(request, isbn):
+    quantity = int(request.GET.get('quantity', 1))
+    cart = request.session.get('cart', {})
+    if quantity > 0:
+        cart[isbn] = quantity
+        request.session['cart'] = cart
+        return JsonResponse({'status': 'success'})
+    else:
+        return JsonResponse({'status': 'error', 'message': '数量必须大于 0'})
+
+
+def clear_cart(request):
+    request.session['cart'] = {}
+    return redirect('view_cart')
