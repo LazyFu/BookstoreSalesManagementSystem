@@ -1,112 +1,26 @@
 {% extends "base_generic.html" %}
 {% block content %}
-  <h2>Shopping Cart</h2>
-  <form id="cart-form" method="post" action="{% url 'update_cart' %}">
+<h2>Shopping Cart</h2>
+<form id="cart-form" method="post" action="{% url 'update_cart' %}">
     {% csrf_token %}
     <table class="table">
-      <tr>
-        <th>书名</th>
-        <th>数量</th>
-        <th>单价</th>
-        <th>小计</th>
-        <th>操作</th>
-      </tr>
-      {% for item in cart_items %}
-        <tr data-isbn="{{ item.book.isbn }}">
-          <td>{{ item.book.title }}</td>
-          <td>
-            <label>
-              <input type="number" name="quantity_{{ item.book.isbn }}"
-                     value="{{ item.quantity }}" min="1" step="1"
-                     class="form-control quantity-input" style="width: 70px;">
-            </label>
-          </td>
-          <td class="price">{{ item.book.price }}</td>
-          <td class="subtotal">{{ item.total }}</td>
-          <td>
-            <button type="button" class="btn btn-danger btn-sm remove-item">删除</button>
-          </td>
+        <tr>
+            <th>书名</th>
+            <th>数量</th>
+            <th>单价</th>
+            <th>小计</th>
         </tr>
-      {% endfor %}
+        {% for item in cart_items %}
+        <tr data-isbn="{{ item.book.isbn }}">
+            <td>{{ item.book.title }}</td>
+            <td class="quantity">{{item.quantity}}</td>
+            <td class="price">{{ item.book.price }}</td>
+            <td class="subtotal">{{ item.total }}</td>
+        </tr>
+        {% endfor %}
     </table>
     <p><strong>总计：</strong><span id="total">{{ total }}</span></p>
     <a href="{% url 'checkout' %}" class="btn btn-success">结算</a>
     <a href="{% url 'clear_cart' %}" class="btn btn-warning">清空购物车</a>
-  </form>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-  document.addEventListener('DOMContentLoaded', function() {
-    const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-    const form = document.getElementById('cart-form');
-
-    // 阻止表单默认提交
-    form.addEventListener('submit', function(e) {
-      e.preventDefault();
-    });
-
-    function updateTotal() {
-      let total = 0;
-      document.querySelectorAll('tr[data-isbn]').forEach(row => {
-        const price = parseFloat(row.querySelector('.price').textContent);
-        const quantity = parseInt(row.querySelector('.quantity-input').value);
-        const subtotal = price * quantity;
-        row.querySelector('.subtotal').textContent = subtotal.toFixed(2);
-        total += subtotal;
-      });
-      document.getElementById('total').textContent = total.toFixed(2);
-    }
-
-    // 统一处理数据提交
-    function submitCartData() {
-      const formData = new FormData(form);
-      fetch(form.action, {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'X-CSRFToken': csrftoken,
-          'X-Requested-With': 'XMLHttpRequest'
-        }
-      }).then(response => response.json())
-        .then(data => {
-          if (data.status !== 'success') {
-            alert('更新失败，请刷新页面重试');
-          }
-        });
-    }
-
-    // 输入框实时更新
-    document.querySelectorAll('.quantity-input').forEach(input => {
-      input.addEventListener('change', function() {
-        updateTotal();
-        submitCartData();
-      });
-    });
-
-    // 删除商品
-    document.querySelectorAll('.remove-item').forEach(btn => {
-      btn.addEventListener('click', function() {
-        const row = this.closest('tr');
-        fetch(`/catalog/cart/remove/${row.dataset.isbn}/`, {
-          method: 'POST',
-          headers: {
-            'X-CSRFToken': csrftoken,
-            'X-Requested-With': 'XMLHttpRequest'
-          }
-        }).then(response => response.json())
-          .then(data => {
-            if (data.status === 'success') {
-              row.remove();
-              updateTotal();
-            } else {
-              alert('删除失败: ' + (data.message || '未知错误'));
-            }
-          });
-      });
-    });
-
-    updateTotal();
-  });
-</script>
+</form>
 {% endblock %}

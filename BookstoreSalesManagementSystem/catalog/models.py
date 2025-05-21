@@ -23,7 +23,6 @@ class Book(models.Model):
 
 class Customer(models.Model):
     customer_id = models.AutoField(primary_key=True, verbose_name='Customer ID')
-    first_name = models.CharField('First Name', max_length=100)
     name = models.CharField('Name', max_length=100)
     phone = models.CharField('Phone', max_length=11)
 
@@ -55,7 +54,7 @@ class Order(models.Model):
 class OrderItem(models.Model):
     order_item_id = models.AutoField(primary_key=True, verbose_name='Order Item ID')
     book = models.ForeignKey(Book, on_delete=models.PROTECT)
-    order = models.ForeignKey(Order, on_delete=models.PROTECT)
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')
     count = models.IntegerField('Order Count', default=1)
     price = models.DecimalField('Price', decimal_places=2, max_digits=6)
 

@@ -1,6 +1,21 @@
 {% extends "base_generic.html" %}
 {% block content %}
 <h2>订单确认</h2>
-<p>此处是结算流程页面。稍后可添加支付功能。</p>
+<form method="post">
+    {% csrf_token %}
+    <label for="name">姓名：</label>
+    <input type="text" name="name" id="name" required><br>
+
+    <label for="phone">电话：</label>
+    <input type="text" name="phone" id="phone" required><br>
+
+    <label for="status">支付状态：</label>
+    <select name="status" id="status" required>
+        <option value="P">已支付</option>
+        <option value="U">未支付</option>
+    </select><br>
+
+    <button type="submit">提交订单</button>
+</form>
 <a href="{% url 'view_cart' %}">返回购物车</a>
 {% endblock %}
