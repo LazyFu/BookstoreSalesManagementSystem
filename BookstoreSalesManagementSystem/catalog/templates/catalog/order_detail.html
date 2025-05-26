@@ -1,23 +1,23 @@
 {% extends "base_generic.html" %}
 
 {% block title %}
-<title>Order Detail</title>
+<title>订单详情</title>
 {% endblock %}
 
 {% block content %}
-<h1>Order #{{ order.order_id }}</h1>
-<p><strong>Customer:</strong> {{ order.customer.name }}</p>
-<p><strong>Date:</strong> {{ order.order_date }}</p>
+<h1>订单 #{{ order.order_id }}</h1>
+<p><strong>顾客：</strong> {{ order.customer.name }}</p>
+<p><strong>日期：</strong> {{ order.order_date }}</p>
 
-<h2>Items:</h2>
+<h2>项目：</h2>
 {% for item in items %}
 <div style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px;">
-    <p><strong>Book:</strong> {{ item.title }}</p>
-    <p><strong>Quantity:</strong> {{ item.count }}</p>
-    <p><strong>Unit Price:</strong> ¥{{ item.price|floatformat:2 }}</p>
-    <p><strong>Subtotal:</strong> ¥{{ item.subtotal|floatformat:2 }}</p>
+    <p><strong>书名：</strong> {{ item.title }}</p>
+    <p><strong>数量：</strong> {{ item.count }}</p>
+    <p><strong>单价：</strong> ¥{{ item.price|floatformat:2 }}</p>
+    <p><strong>小结：</strong> ¥{{ item.subtotal|floatformat:2 }}</p>
 </div>
 {% endfor %}
 
-<h3>Total Amount: ¥{{ order.total_amount }}</h3>
+<h3>总金额：¥{{ order.total_amount }}</h3>
 {% endblock %}

@@ -1,7 +1,7 @@
 {% extends "base_generic.html" %}
 
 {% block content %}
-  <h1>Orders List</h1>
+  <h1>订单列表</h1>
 
   {% if order_list %}
     <ul>
@@ -12,6 +12,6 @@
       {% endfor %}
     </ul>
   {% else %}
-    <p>There are no orders.</p>
+    <p>现在还没有订单。</p>
   {% endif %}
 {% endblock %}

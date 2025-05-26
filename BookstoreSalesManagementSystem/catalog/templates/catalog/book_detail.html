@@ -1,55 +1,60 @@
 {% extends "base_generic.html" %}
 
 {% block title %}
-<title>Book Detail</title>
+    <title>书籍详情</title>
 {% endblock %}
 
 {% block content %}
-<h1>{{ book.title }}</h1>
-<p>ISBN: {{ book.isbn }}</p>
-<p>Summary: {{ book.summary }}</p>
-<p>Press: {{ book.press }}</p>
-<p>Price: {{ book.price }}</p>
-<p>Author: {{ book.author }}</p>
-<p class="stock-count">Stock: {{ book.stock }}</p>  <!-- 添加class方便定位 -->
+    <h1>{{ book.title }}</h1>
+    <p>作者：{{ book.author }}</p>
+    <p>ISBN：{{ book.isbn }}</p>
+    <p>概要：{{ book.summary }}</p>
+    <p>出版社：{{ book.press }}</p>
+    <p>定价：{{ book.price }}</p>
+    <p class="stock-count">库存：{{ book.stock }}</p>  <!-- 添加class方便定位 -->
 
-<form method="post" action="{% url 'add_to_cart' book.isbn %}" class="add-to-cart-form">
-    {% csrf_token %}
-    <label for="quantity">数量：</label>
-    <input type="number" id="quantity" name="quantity" value="1" min="1" max="{{ book.stock }}" required>
-    <button type="submit" class="btn btn-success">加入购物车</button>
-</form>
+    <form method="post" action="{% url 'add_to_cart' book.isbn %}" class="add-to-cart-form">
+        {% csrf_token %}
+        <label for="quantity">数量：</label>
+        <input type="number" id="quantity" name="quantity" value="1" min="1" max="{{ book.stock }}" required>
+        <button type="submit" class="btn btn-success">加入购物车</button>
+    </form>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
 
-    // 统一使用fetch API
-    document.querySelector('.add-to-cart-form').addEventListener('submit', function(e) {
-        e.preventDefault();
+            // 统一使用fetch API
+            document.querySelector('.add-to-cart-form').addEventListener('submit', function (e) {
+                e.preventDefault();
 
-        const formData = new FormData(this);
-        const quantity = parseInt(formData.get('quantity'));
+                const formData = new FormData(this);
+                const quantity = parseInt(formData.get('quantity'));
 
-        fetch(this.action, {
-            method: 'POST',
-            body: formData,
-            headers: {
-                'X-CSRFToken': csrftoken
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if(data.status === 'success') {
-                // 更新库存显示
-                const stockElem = document.querySelector('.stock-count');
-                stockElem.textContent = `Stock: ${parseInt(stockElem.textContent.split(': ')[1]) - quantity}`;
-                alert('加入购物车成功！');
-            } else {
-                alert(data.message || '操作失败');
-            }
+                fetch(this.action, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-CSRFToken': csrftoken
+                    }
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            // 更新库存显示
+                            const stockElem = document.querySelector('.stock-count'); // 确保这个选择器能选中元素
+                            if (stockElem) {
+                                stockElem.textContent = `库存：${data.new_stock}`;
+                            } else {
+                                console.error("错误：未能找到类名为 '.stock-count' 的元素。");
+                            }
+
+                            alert('加入购物车成功！');
+                        } else {
+                            alert(data.msg || '操作失败'); // 应该使用 data.msg
+                        }
+                    })
+            });
         });
-    });
-});
-</script>
+    </script>
 {% endblock %}

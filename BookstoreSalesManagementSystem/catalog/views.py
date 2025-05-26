@@ -1,9 +1,7 @@
 from decimal import Decimal
-
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import render, redirect
-from django.utils import timezone
 
 # Create your views here.
 from .models import Book, Order, OrderItem, Customer
@@ -60,29 +58,36 @@ class OrderDetailView(generic.DetailView):
 
 
 def add_to_cart(request, isbn):
-    try:
-        book = Book.objects.get(isbn=isbn)
-        quantity = int(request.POST.get('quantity', 1))
+    if request.method == 'POST':  # 确保是 POST 请求
+        try:
+            book = Book.objects.get(isbn=isbn)
+            quantity = int(request.POST.get('quantity', 1))
 
-        # 直接扣减总库存
-        with transaction.atomic():
-            if book.stock >= quantity:
-                book.stock -= quantity
-                book.save()
+            # 直接扣减总库存
+            with transaction.atomic():
+                if book.stock >= quantity:
+                    book.stock -= quantity
+                    book.save()  # 保存更新后的库存
 
-                # 记录临时售出状态（使用session）
-                cart = request.session.get('cart', {})
-                cart[book.isbn] = {
-                    'quantity': quantity,
-                    'expires': timezone.now().timestamp() + 900  # 15分钟过期
-                }
-                request.session['cart'] = cart
-                return JsonResponse({'status': 'success'})
+                    cart = request.session.get('cart', {})
+                    cart_item = cart.get(book.isbn, {'quantity': 0})
+                    cart_item['quantity'] += quantity
 
-            return JsonResponse({'status': 'error', 'msg': '库存不足'})
+                    cart[book.isbn] = cart_item
+                    request.session['cart'] = cart
 
-    except Exception as e:
-        return JsonResponse({'status': 'error', 'msg': str(e)})
+                    # 在成功的响应中返回新的库存数量
+                    return JsonResponse({'status': 'success', 'new_stock': book.stock,
+                                         'cart_total_items': sum(item['quantity'] for item in cart.values())})
+                else:
+                    return JsonResponse({'status': 'error', 'msg': '库存不足'})
+        except Book.DoesNotExist:
+            return JsonResponse({'status': 'error', 'msg': '书籍不存在'})
+        except ValueError:  # 处理 quantity 不是有效数字的情况
+            return JsonResponse({'status': 'error', 'msg': '无效的数量'})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'msg': '处理请求时发生错误'})
+    return JsonResponse({'status': 'error', 'msg': '无效的请求方法'}, status=405)
 
 
 def view_cart(request):

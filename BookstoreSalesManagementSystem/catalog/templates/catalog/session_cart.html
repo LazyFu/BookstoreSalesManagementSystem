@@ -1,6 +1,6 @@
 {% extends "base_generic.html" %}
 {% block content %}
-<h2>Shopping Cart</h2>
+<h2>购物车</h2>
 <form id="cart-form" method="post" action="{% url 'update_cart' %}">
     {% csrf_token %}
     <table class="table">

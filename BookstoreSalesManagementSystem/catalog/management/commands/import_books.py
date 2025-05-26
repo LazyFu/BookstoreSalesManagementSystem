@@ -31,10 +31,11 @@ class Command(BaseCommand):
                         isbn=data['isbn'],
                         defaults={
                             'title': data['title'],
-                            'summary': data.get('summary', None),
+                            'summary': data.get('summary', '无'),
                             'author': data['author'],
                             'press': data['press'],
                             'price': price,
+                            'stock': data['stock'],
                         }
                     )
                     self.stdout.write(self.style.SUCCESS(f'Successfully imported: {data["title"]}'))

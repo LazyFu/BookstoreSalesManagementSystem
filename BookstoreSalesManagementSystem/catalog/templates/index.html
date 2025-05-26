@@ -1,15 +1,15 @@
 {% extends "base_generic.html" %}
 
 {% block content %}
-<h1>Bookstore Home</h1>
+<h1>书籍管理</h1>
 
-<p>Welcome to <em>our store</em>, a very basic Django website</p>
+<p>欢迎来到<em>我们的书店</em>，你可以浏览书籍并随意选购</p>
 
-<h2>Our status</h2>
+<h2>书店概况</h2>
 
-<p>The store has the following record counts:</p>
+<p>书店有以下数量的记录：</p>
 <ul>
-    <li><strong>Books:</strong> {{ num_books }}</li>
-    <li><strong>Orders:</strong> {{ num_orders }}</li>
+    <li><strong>书籍</strong> {{ num_books }}</li>
+    <li><strong>订单</strong> {{ num_orders }}</li>
 </ul>
 {% endblock %}
