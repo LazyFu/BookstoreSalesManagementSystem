@@ -28,12 +28,12 @@ class Command(BaseCommand):
 
                     # 创建或更新书籍（根据ISBN唯一性）
                     Book.objects.update_or_create(
-                        isbn=data['isbn'],
+                        isbn=data['isbn'],  # 用于查找或创建的键
                         defaults={
                             'title': data['title'],
                             'summary': data.get('summary', '无'),
-                            'author': data['author'],
-                            'press': data['press'],
+                            'author': data.get('author', '佚名'),
+                            'press': data.get('press', '无名出版社'),
                             'price': price,
                             'stock': data['stock'],
                         }
