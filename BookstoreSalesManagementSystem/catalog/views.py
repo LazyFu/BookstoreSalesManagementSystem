@@ -47,23 +47,16 @@ class OrderListView(LoginRequiredMixin, generic.ListView):  # 3. 继承 LoginReq
         user = self.request.user  # 获取当前登录的用户
 
         try:
-            # 假设您的 Customer 模型通过 OneToOneField 或 ForeignKey 与 User 模型关联
-            # 并且 Order 模型有一个指向 Customer 的外键字段 'customer'
-            customer_profile = user.customer  # 尝试获取当前用户的 Customer 实例
-            # 查询所有属于这个 customer_profile 的订单，并按订单日期降序排列
+            customer_profile = user.customer
             queryset = Order.objects.filter(customer=customer_profile).order_by('-order_date')
         except Customer.DoesNotExist:
-            # 如果当前登录用户没有关联的 Customer 对象（例如，可能是管理员账户或老用户数据不完整）
-            # 那么他们就没有“自己”的客户订单，返回一个空查询集
             queryset = Order.objects.none()
         except AttributeError:
-            # 如果 user 对象没有 'customer' 属性（例如某些特殊用户类型，或匿名用户——尽管LoginRequiredMixin会阻止匿名用户）
             queryset = Order.objects.none()
 
         return queryset
 
     def get_context_data(self, **kwargs):
-        # 可选：如果您想在上下文中添加额外的数据，例如页面标题
         context = super().get_context_data(**kwargs)
         context['page_title'] = '我的订单'  # 可以在 base_generic.html 中使用 {{ page_title }}
         return context
@@ -198,7 +191,7 @@ def view_cart(request):
             request.session.modified = True
 
     vip_discount_applied_on_cart = is_current_user_vip and valid_cart_items_exist and (
-                grand_total_effective < grand_total_original)
+            grand_total_effective < grand_total_original)
 
     discount_amount_for_cart = Decimal('0.00')
     if vip_discount_applied_on_cart:
