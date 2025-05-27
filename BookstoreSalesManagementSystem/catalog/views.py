@@ -1,10 +1,11 @@
-from decimal import Decimal
+from django.contrib.auth import login
+from django.contrib.auth.models import User
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import render, redirect
-
+from .forms import CustomUserCreationForm, CheckoutForm
 # Create your views here.
-from .models import Book, Order, OrderItem, Customer
+from .models import Book, Order, OrderItem, Customer, Cart
 from django.views import generic
 
 
@@ -113,132 +114,152 @@ def view_cart(request):
     })
 
 
-# def checkout(request):
-#     cart = request.session.get('cart', {})
-#
-#     if request.method == 'POST':
-#         name = request.POST.get('name')
-#         phone = request.POST.get('phone')
-#         status = request.POST.get('status', 'U')
-#
-#         if not name or not phone:
-#             return render(request, 'catalog/checkout.html', {
-#                 'error': '请填写所有信息',
-#             })
-#
-#         # 创建客户
-#         customer, created = Customer.objects.get_or_create(name=name, phone=phone)
-#
-#         order = Order.objects.create(customer=customer, total_amount=0, status=status)
-#         total_amount = Decimal('0.00')
-#
-#         for isbn, item in cart.items():
-#             quantity = int(item['quantity'])
-#             book = Book.objects.get(isbn=isbn)
-#             price = book.price
-#             total_price = price * quantity
-#
-#             OrderItem.objects.create(
-#                 order=order,
-#                 book=book,
-#                 count=quantity,
-#                 price=price
-#             )
-#
-#             total_amount += total_price
-#
-#         order.total_amount = total_amount
-#         order.save()
-#
-#         request.session['cart'] = {}
-#
-#         return redirect(order.get_absolute_url())
-#
-#     return render(request, 'catalog/checkout.html')
-
 def checkout(request):
-    form_name_initial = ''
-    form_phone_initial = ''
-    # form_address_initial = '' # 如果有地址字段
-
-    if request.user.is_authenticated:
-        try:
-            # 尝试从关联的 Customer 模型获取信息
-            customer = request.user.customer
-            form_name_initial = customer.name
-            form_phone_initial = customer.phone
-            # form_address_initial = customer.address # 如果有地址字段
-        except Customer.DoesNotExist:
-            # 如果没有 Customer 关联对象，尝试从 User 对象获取
-            form_name_initial = request.user.get_full_name()
-            if not form_name_initial:  # 如果全名为空
-                form_name_initial = request.user.username  # 使用用户名作为备选
-            # form_phone_initial 和 form_address_initial 保持为空，除非 User 模型也有这些信息
-        except AttributeError:  # 例如，超级用户可能没有 customer 属性
-            form_name_initial = request.user.get_full_name() or request.user.username
+    cart = get_cart(request)
+    if cart is None or not cart.items.exists():
+        # messages.info(request, "您的购物车是空的。")
+        return redirect('view_cart')
 
     if request.method == 'POST':
-        # 获取用户提交的数据
-        name_from_form = request.POST.get('name')
-        phone_from_form = request.POST.get('phone')
-        status_from_form = request.POST.get('status', 'U')  # 安全起见，若未提交则默认为'U'
+        form = CheckoutForm(request.POST)
+        if form.is_valid():
+            cleaned_data = form.cleaned_data
+            name = cleaned_data.get('name')
+            phone = cleaned_data.get('phone')
+            email = cleaned_data.get('email')
+            password = cleaned_data.get('password')
+            create_account = cleaned_data.get('create_account')
 
-        # ---- 处理顾客信息 ----
-        current_customer_for_order = None
+            order_customer = None
+            # new_user_created = False # 移到 try 块内部或作为 User 对象是否创建的标志
+
+            if request.user.is_authenticated:
+                try:
+                    order_customer = request.user.customer
+                    # （可选）如果表单中的信息与已存信息不同，是否更新 Customer 对象？
+                    if order_customer.name != name or order_customer.phone != phone:
+                        order_customer.name = name
+                        order_customer.phone = phone
+                        order_customer.save()
+                except Customer.DoesNotExist:  # 已认证用户但无Customer对象 (罕见，但需处理)
+                    # messages.warning(request, "无法找到您的顾客资料，将作为访客下单。")
+                    pass  # 或者在这里为已认证用户创建Customer
+                except AttributeError:  # e.g. superuser without customer
+                    pass
+
+
+            elif create_account:  # 仅当勾选了创建账户并且表单验证通过（包括邮箱和密码的必填）
+                try:
+                    new_user = User.objects.create_user(username=email, email=email, password=password)
+                    # 你可以在这里设置 new_user.first_name, new_user.last_name 等
+                    order_customer = Customer.objects.create(user=new_user, name=name, phone=phone)
+                    login(request, new_user)  # 创建并登录
+                    # messages.success(request, "账户创建成功并已自动登录！")
+                except Exception as e:  # 更具体的异常捕获更好
+                    # messages.error(request, f"创建账户时发生错误: {e}")
+                    # 这种情况下，错误应该由表单的 clean_email 捕获，这里是备用
+                    # 或者，如果错误不是由表单验证捕获的（例如数据库问题）
+                    # 重新渲染表单，可能需要添加一个通用错误到表单
+                    form.add_error(None, f"创建账户过程中发生系统错误: {e}")
+                    return render(request, 'catalog/checkout.html', {'form': form, 'cart': cart})
+
+            # ---- 创建订单 Order 和订单项 OrderItem ----
+            total_amount = cart.total_amount
+
+            new_order = Order(total_amount=total_amount, status='U')
+
+            if order_customer:
+                new_order.customer = order_customer
+            else:  # 匿名访客订单 (未登录且未选择创建账户)
+                new_order.guest_name = name
+                new_order.guest_phone = phone
+
+            new_order.save()
+
+            for cart_item in cart.items.all():
+                OrderItem.objects.create(
+                    order=new_order,
+                    book=cart_item.book,
+                    count=cart_item.quantity,
+                    price=cart_item.price_at_addition
+                )
+
+            # 清空购物车逻辑 (示例)
+            if hasattr(cart, 'items') and cart.items.exists():  # 确保 cart.items 存在
+                cart.items.all().delete()
+            # 或者如果Cart对象本身是基于session并且不再需要，可以考虑删除Cart对象
+            # if not request.user.is_authenticated and cart.customer is None:
+            #     try:
+            #         del request.session['cart_id'] # 假设你用 cart_id 存在 session 中
+            #     except KeyError:
+            #         pass
+            #     cart.delete()
+
+            # messages.success(request, f"订单 #{new_order.order_id} 已成功提交！")
+            return redirect('order_detail', pk=new_order.order_id)  # 假设你有这个URL name
+
+        # else: 表单验证失败，会自动进入下面的render，form对象已包含错误信息
+
+    else:  # GET 请求
+        initial_data_for_form = {}
         if request.user.is_authenticated:
             try:
-                current_customer_for_order = request.user.customer
-                # （可选）如果表单中的信息与已存信息不同，是否更新 Customer 对象？
-                # if current_customer_for_order.name != name_from_form or current_customer_for_order.phone != phone_from_form:
-                #     current_customer_for_order.name = name_from_form
-                #     current_customer_for_order.phone = phone_from_form
-                #     current_customer_for_order.save()
-            except (Customer.DoesNotExist, AttributeError):
-                # 如果认证用户没有Customer对象，你可能需要决定是否在这里创建一个
-                # 或者，如果Order.customer可以为null，并且你直接在Order上存name/phone
-                pass  # 留给你根据你的具体业务逻辑决定
-        # else: # 匿名用户
-        # 你提到匿名用户结算已实现。
-        # 这里需要你现有的逻辑来处理匿名用户的顾客信息，
-        # 可能是创建一个临时的Customer（如果模型允许user为null），
-        # 或者直接将 name_from_form, phone_from_form 用于创建Order。
+                customer = request.user.customer
+                initial_data_for_form['name'] = customer.name
+                initial_data_for_form['phone'] = customer.phone
+                initial_data_for_form['email'] = request.user.email
+            except Customer.DoesNotExist:
+                initial_data_for_form['name'] = request.user.get_full_name() or request.user.username
+                initial_data_for_form['email'] = request.user.email
+            except AttributeError:  # e.g. superuser
+                initial_data_for_form['name'] = request.user.get_full_name() or request.user.username
+                initial_data_for_form['email'] = request.user.email
+        form = CheckoutForm(initial=initial_data_for_form)
 
-        # ---- 创建订单 Order 和订单项 OrderItem 的逻辑 ----
-        # 1. 获取购物车
-        # 2. 计算总金额
-        # 3. 创建 Order 对象:
-        #    - customer: current_customer_for_order (如果已登录且找到) 或 None/其他 (如果匿名)
-        #    - total_amount: 计算得到的总金额
-        #    - status: 强烈建议在这里将 status 设为 'U'，而不是直接使用 status_from_form，除非你有特殊理由。
-        #      new_order_status = 'U' # 总是以未支付开始
-        #    - 如果是匿名用户，你可能还需要在Order对象上直接保存姓名和电话。
-        #      (例如, Order模型可能有 guest_name, guest_phone 字段，
-        #      或者 Order.customer 可以为 null，此时这些信息必须存储)
-        #
-        # new_order = Order.objects.create(
-        #     customer=current_customer_for_order,
-        #     total_amount=cart_total,
-        #     status='U', # 推荐
-        #     # 如果Order模型需要直接存储匿名用户信息：
-        #     # guest_name=name_from_form if not request.user.is_authenticated else None,
-        #     # guest_phone=phone_from_form if not request.user.is_authenticated else None,
-        # )
-        #
-        # 4. 为购物车中的每个商品创建 OrderItem 对象，并关联到 new_order
-        # 5. 清空购物车
-        # 6. 重定向到订单成功页面或支付页面
-        # return redirect('order_success_or_payment_url')
-        pass  # 此处替换为你的实际订单处理逻辑
-
-    # 准备传递给模板的上下文
     context = {
-        'form_name': form_name_initial,
-        'form_phone': form_phone_initial,
-        # 'form_address': form_address_initial,
-        # 'cart_items': ...,
-        # 'cart_total_amount': ...,
+        'form': form,  # 将表单实例传递给模板
+        'cart': cart,
+        # 'form_name': initial_form_data.get('name', ''), # 这些不再需要，由表单处理
+        # 'form_phone': initial_form_data.get('phone', ''),
+        # 'form_email': initial_form_data.get('email', ''),
     }
     return render(request, 'catalog/checkout.html', context)
+
+
+# 辅助函数：获取购物车 (你需要根据你的实现来编写)
+def get_cart(request):
+    cart_id = request.session.get('cart_id')
+    if request.user.is_authenticated:
+        try:
+            customer = request.user.customer
+            cart, created = Cart.objects.get_or_create(customer=customer, defaults={
+                'session_key': request.session.session_key if not request.session.session_key else None})
+            # 如果用户登录了，并且session中有一个匿名购物车，你可能还想合并它们
+            if created and cart_id:
+                try:
+                    session_cart = Cart.objects.get(id=cart_id, customer__isnull=True)
+                    # 合并逻辑...
+                except Cart.DoesNotExist:
+                    pass
+
+        except Customer.DoesNotExist:  # 用户已认证但没有Customer对象
+            cart, created = Cart.objects.get_or_create(
+                session_key=request.session.session_key or request.session.create())
+            if created and not request.session.session_key:
+                request.session['cart_id'] = cart.cart_id
+        except AttributeError:  # 例如超级用户
+            cart, created = Cart.objects.get_or_create(
+                session_key=request.session.session_key or request.session.create())
+
+    else:  # 匿名用户
+        if not request.session.session_key:
+            request.session.create()
+        session_key = request.session.session_key
+        cart, created = Cart.objects.get_or_create(session_key=session_key, customer__isnull=True)
+        if created:
+            request.session['cart_id'] = cart.cart_id
+
+    return cart
 
 
 def update_cart(request):
@@ -271,3 +292,15 @@ def clear_cart(request):
     # 清空session中的购物车
     request.session['cart'] = {}
     return redirect('view_cart')
+
+
+def signup_view(request):
+    if request.method == 'POST':
+        form = CustomUserCreationForm(request.POST)  # 使用自定义表单
+        if form.is_valid():
+            user = form.save()
+            login(request, user)
+            return redirect('index')  # 修改为你的首页 URL name
+    else:
+        form = CustomUserCreationForm()  # 使用自定义表单
+    return render(request, 'registration/signup.html', {'form': form})

@@ -1,8 +1,6 @@
-{% extends "base_generic.html" %} {# 假设你的基础模板名为 base_generic.html #}
+{% extends "base_generic.html" %}
 
-{% block title %}用户登录{% endblock %} {# 覆盖基础模板中的标题块 #}
-
-{% block content %} {# 覆盖基础模板中的主要内容块 #}
+{% block content %}
   <h2>登录</h2>
   {% if form.errors %}
     <p style="color: red;">你的用户名和密码不匹配，请重试。</p>
@@ -34,5 +32,5 @@
 
   {# 如果你想添加“忘记密码？”和“注册”链接 #}
   <p><a href="{% url 'password_reset' %}">忘记密码?</a></p>
-  <p>还没有账户? <a href="{% url 'signup' %}">立即注册</a></p> {# 假设你的注册URL名为 'signup' #}
+  <p>还没有账户? <a href="{% url 'signup' %}">立即注册</a></p>
 {% endblock %}

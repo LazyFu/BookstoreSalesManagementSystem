@@ -12,6 +12,11 @@
 ```bash
 # 安装依赖
 pip3 install -r requirement.txt
+```
+
+`pwd`:~/BookstoreSalesManagementSystem/BookstoreSalesManagementSystem/
+
+```
 # 添加数据
 python3 manage.py makemigrations
 python3 manage.py migrate
