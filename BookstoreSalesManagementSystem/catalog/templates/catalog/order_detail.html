@@ -1,23 +1,59 @@
+{# catalog/templates/catalog/order_detail.html #}
 {% extends "base_generic.html" %}
 
 {% block title %}
-<title>订单详情</title>
+<title>{{ page_title|default:"订单详情" }} - 书店销售管理系统</title>
 {% endblock %}
 
 {% block content %}
-<h1>订单 #{{ order.order_id }}</h1>
-<p><strong>顾客：</strong> {{ order.customer.name }}</p>
-<p><strong>日期：</strong> {{ order.order_date }}</p>
+  <h1>{{ page_title|default:"订单详情" }}</h1>
+  <p>
+    <strong>顾客：</strong>
+    {% if order.customer %}
+      {{ order.customer.name }}
+      {% if order.customer.is_vip %}<span style="color: orange; font-weight: bold;"> (VIP)</span>{% endif %}
+    {% elif order.guest_name %}
+      {{ order.guest_name }} (访客)
+    {% else %}
+      未知顾客
+    {% endif %}
+  </p>
+  <p><strong>日期：</strong> {{ order.order_date|date:"Y-m-d H:i:s" }}</p>
+  <p><strong>订单状态：</strong> {{ order.get_status_display_value }}</p>
 
-<h2>项目：</h2>
-{% for item in items %}
-<div style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px;">
-    <p><strong>书名：</strong> {{ item.title }}</p>
-    <p><strong>数量：</strong> {{ item.count }}</p>
-    <p><strong>单价：</strong> ¥{{ item.price|floatformat:2 }}</p>
-    <p><strong>小结：</strong> ¥{{ item.subtotal|floatformat:2 }}</p>
-</div>
-{% endfor %}
+  <h2>商品列表：</h2>
+  {% if order.items.all %}
+    {% for item in order.items.all %} {# item 是 OrderItem 实例 #}
+    <div style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px; background-color: #f9f9f9;">
+        <p><strong>书名：</strong> {{ item.book.title }}</p>
+        <p><strong>数量：</strong> {{ item.count }}</p>
+        {% if item.original_unit_price and item.price < item.original_unit_price %}
+            <p><strong>原单价：</strong> <del>¥{{ item.original_unit_price|floatformat:2 }}</del></p>
+            <p><strong>VIP折扣单价：</strong> ¥{{ item.price|floatformat:2 }} <span style="color: green;">(九折优惠)</span></p>
+        {% else %}
+            <p><strong>单价：</strong> ¥{{ item.price|floatformat:2 }}</p>
+        {% endif %}
+        <p><strong>小计：</strong> ¥{{ item.subtotal|floatformat:2 }}</p>
+    </div>
+    {% endfor %}
+  {% else %}
+    <p>此订单没有商品项。</p>
+  {% endif %}
 
-<h3>总金额：¥{{ order.total_amount }}</h3>
+  <hr style="margin-top: 30px; margin-bottom: 30px;">
+
+  <div style="text-align: right;">
+    {% if order.original_total_amount is not None and order.vip_discount_applied %}
+        <p>商品原总价：¥{{ order.original_total_amount|floatformat:2 }}</p>
+        <p style="color: green;">VIP九折优惠已应用，优惠金额：¥{{ order.discount_amount|floatformat:2 }}</p>
+        <h3 style="color: #B12704;">最终支付总额：¥{{ order.final_total_amount|floatformat:2 }}</h3>
+    {% elif order.final_total_amount is not None %}
+        <h3>总金额：¥{{ order.final_total_amount|floatformat:2 }}</h3>
+    {% else %}
+        <p>总金额信息不可用。</p>
+    {% endif %}
+  </div>
+
+  <p style="margin-top: 30px;"><a href="{% url 'orders' %}" class="btn btn-link">返回我的订单列表</a></p>
+
 {% endblock %}

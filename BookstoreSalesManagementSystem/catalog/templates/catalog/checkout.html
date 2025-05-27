@@ -5,71 +5,51 @@
 {% endblock %}
 
 {% block content %}
-<h2>订单确认</h2>
+    <h2>订单确认</h2>
+    <p>请确认或填写您的配送信息：</p>
 
-{# 建议在这里显示一个简单的购物车摘要，让用户最后确认购买的商品和总价 #}
-{# 例如: #}
-{#{% if cart_items %} #}
-{#    <h3>您的订单内容:</h3>#}
-{#    <ul>#}
-{#    {% for item in cart_items %}#}
-{#        <li>{{ item.book.title }} - 数量: {{ item.quantity }} - 小计: ¥{{ item.subtotal }}</li>#}
-{#    {% endfor %}#}
-{#    </ul>#}
-{#    <h4>总计: ¥{{ cart_total_amount }}</h4>#}
-{#    <hr>#}
-{#{% endif %} #}
+    <form method="post">
+        {% csrf_token %}
+        <div>
+            {{ form.name.label_tag }} {# 渲染 "姓名：" 标签 #}
+            {{ form.name }}         {# 渲染姓名输入框，如果登录且有数据，会自动填充 #}
+            {% if form.name.errors %}
+                <div class="errorlist">{{ form.name.errors }}</div>
+            {% endif %}
+        </div>
+        <br>
+        <div>
+            {{ form.phone.label_tag }} {# 渲染 "电话：" 标签 #}
+            {{ form.phone }}
+            {% if form.phone.errors %}
+                <div class="errorlist">{{ form.phone.errors }}</div>
+            {% endif %}
+        </div>
+        <br>
 
-<p>请确认或填写您的配送信息：</p>
+        {# 其他表单字段，例如 status, create_account, password 等，也应该使用 {{ form.field_name }} 的方式渲染 #}
+        <div>
+            {{ form.status.label_tag }}
+            {{ form.status }}
+            {% if form.status.errors %}<div class="errorlist">{{ form.status.errors }}</div>{% endif %}
+        </div>
+        <br>
 
-<form method="post">
-    {% csrf_token %}
-    <div>
-        <label for="name">姓名：</label>
-        {# 如果 form_name 变量存在且有值，则预填充，否则为空，允许用户输入 #}
-        <input type="text" name="name" id="name" value="{{ form_name|default:'' }}" required>
-    </div>
+        {# 如果用户未登录，显示创建账户相关字段 #}
+        {% if not request.user.is_authenticated %}
+            {% if form.create_account %}
+            <div>
+                {{ form.create_account.label_tag }}
+                {{ form.create_account }}
+                {% if form.create_account.errors %}<div class="errorlist">{{ form.create_account.errors }}</div>{% endif %}
+            </div>
+            {% endif %}
+            {# ... (显示密码字段的逻辑，如上一条回复所示) ... #}
+        {% endif %}
+
+        <button type="submit">提交订单</button>
+    </form>
     <br>
-    <div>
-        <label for="phone">电话：</label>
-        {# 如果 form_phone 变量存在且有值，则预填充，否则为空，允许用户输入 #}
-        <input type="text" name="phone" id="phone" value="{{ form_phone|default:'' }}" pattern="[0-9]{11,13}" title="请输入有效的电话号码 (例如11位手机号)" required> {# 添加了简单的 pattern 校验 #}
-    </div>
-    <br>
-
-{#    关于 “支付状态 (Payment Status)” 字段的重要说明:#}
-{#    对于一个由用户新提交的在线订单，支付状态通常不由用户直接选择。#}
-{#    1. 新订单在创建时，其状态应默认为“未支付 (Unpaid)”。#}
-{#    2. 在用户提交订单后，他们会被引导至支付网关（如支付宝、微信支付）。#}
-{#    3. 只有当支付网关确认支付成功后，订单状态才应（通常由系统自动通过回调）更新为“已支付 (Paid)”。#}
-{#    让用户在下单时就选择“已支付”是不符合标准流程的，除非这是某种特殊的线下支付确认流程。#}
-{##}
-{#    如果你的系统有特定的理由让用户选择，请保留。否则，强烈建议：#}
-{#    - 从这个表单中移除此字段。#}
-{#    - 在后端创建订单时，将 `status` 硬编码为 'U' (未支付)。#}
-{#    下面的代码已将“未支付”设为默认选中项。#}
-
-    <div>
-        <label for="status">支付状态：</label>
-        <select name="status" id="status" required>
-            <option value="U" selected>未支付</option>
-            <option value="P">已支付</option>
-        </select>
-    </div>
-    <br>
-
-    {# 如果你还有其他字段，如配送地址，也可以按照类似方式添加和预填充 #}
-{#    例如：#}
-{#    <div>#}
-{#        <label for="address">配送地址：</label>#}
-{#        <textarea name="address" id="address" required>{{ form_address|default:'' }}</textarea>#}
-{#    </div>#}
-{#    <br>#}
-{#    #}
-
-    <button type="submit">提交订单</button>
-</form>
-<br>
-<p><a href="{% url 'view_cart' %}">返回购物车修改商品</a></p>
+    <p><a href="{% url 'view_cart' %}">返回购物车修改商品</a></p>
 
 {% endblock %}

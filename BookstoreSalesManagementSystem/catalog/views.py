@@ -1,12 +1,15 @@
+from decimal import Decimal
+from django.contrib import messages
 from django.contrib.auth import login
-from django.contrib.auth.models import User
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import render, redirect
-from .forms import CustomUserCreationForm, CheckoutForm
-# Create your views here.
+from .forms import *
 from .models import Book, Order, OrderItem, Customer, Cart
 from django.views import generic
+VIP_DISCOUNT_RATE = Decimal('0.9')
 
 
 def index(request):
@@ -31,30 +34,61 @@ class BookDetailView(generic.DetailView):
     model = Book
 
 
-class OrderListView(generic.ListView):
+class OrderListView(LoginRequiredMixin, generic.ListView):  # 3. 继承 LoginRequiredMixin
     model = Order
+    template_name = 'catalog/order_list.html'  # 明确指定模板名称（好习惯）
+    context_object_name = 'order_list'  # 与模板中使用的变量名一致
+    paginate_by = 10  # 可选：添加分页，每页显示10条订单
+
+    def get_queryset(self):
+        """
+        重写此方法，以便只返回当前登录用户的订单。
+        """
+        user = self.request.user  # 获取当前登录的用户
+
+        try:
+            # 假设您的 Customer 模型通过 OneToOneField 或 ForeignKey 与 User 模型关联
+            # 并且 Order 模型有一个指向 Customer 的外键字段 'customer'
+            customer_profile = user.customer  # 尝试获取当前用户的 Customer 实例
+            # 查询所有属于这个 customer_profile 的订单，并按订单日期降序排列
+            queryset = Order.objects.filter(customer=customer_profile).order_by('-order_date')
+        except Customer.DoesNotExist:
+            # 如果当前登录用户没有关联的 Customer 对象（例如，可能是管理员账户或老用户数据不完整）
+            # 那么他们就没有“自己”的客户订单，返回一个空查询集
+            queryset = Order.objects.none()
+        except AttributeError:
+            # 如果 user 对象没有 'customer' 属性（例如某些特殊用户类型，或匿名用户——尽管LoginRequiredMixin会阻止匿名用户）
+            queryset = Order.objects.none()
+
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        # 可选：如果您想在上下文中添加额外的数据，例如页面标题
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = '我的订单'  # 可以在 base_generic.html 中使用 {{ page_title }}
+        return context
 
 
-class OrderDetailView(generic.DetailView):
+class OrderDetailView(LoginRequiredMixin, generic.DetailView):
     model = Order
-    template_name = 'catalog/order_detail.html'
+    template_name = 'catalog/order_detail.html'  # 确保路径正确
+    context_object_name = 'order'
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff:
+            return Order.objects.all().order_by('-order_date')  # 管理员查看所有，加排序
+        try:
+            customer = user.customer
+            return Order.objects.filter(customer=customer).order_by('-order_date')  # 用户查看自己的，加排序
+        except (Customer.DoesNotExist, AttributeError):
+            return Order.objects.none()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        order = self.get_object()
-        items = []
-
-        for item in order.items.all():
-            subtotal = item.count * item.price
-            items.append({
-                'title': item.book.title,
-                'count': item.count,
-                'price': item.price,
-                'subtotal': subtotal,
-            })
-
-        context['items'] = items
-        context['total'] = order.total_amount
+        order = self.get_object()  # self.object 也一样
+        context['page_title'] = f"订单详情 #{order.order_id}"
+        # 所有需要的数据都可以通过 {{ order }} 对象及其关联对象在模板中获取
         return context
 
 
@@ -92,32 +126,100 @@ def add_to_cart(request, isbn):
 
 
 def view_cart(request):
-    cart = request.session.get('cart', {})
-    cart_items = []
-    total = 0
+    session_cart_dict = request.session.get('cart', {})
+    cart_items_for_template = []
 
-    # 转换为可操作对象
-    for isbn, item in cart.items():
-        book = Book.objects.get(isbn=isbn)
-        quantity = item['quantity']
-        item_total = book.price * quantity
-        cart_items.append({
-            'book': book,
-            'quantity': quantity,
-            'total': item_total
-        })
-        total += item_total
+    grand_total_original = Decimal('0.00')
+    grand_total_effective = Decimal('0.00')
 
-    return render(request, 'catalog/session_cart.html', {
-        'cart_items': cart_items,
-        'total': total
-    })
+    is_current_user_vip = False
+    if request.user.is_authenticated:
+        try:
+            if hasattr(request.user, 'customer') and request.user.customer and request.user.customer.is_vip:
+                is_current_user_vip = True
+        except Customer.DoesNotExist:
+            pass
+        except AttributeError:
+            pass
+
+    valid_cart_items_exist = False
+    items_to_remove_from_session = []
+
+    for isbn, item_data in list(session_cart_dict.items()):
+        try:
+            book = Book.objects.get(isbn=isbn)
+            quantity = int(item_data.get('quantity', 0))
+
+            if quantity <= 0:
+                items_to_remove_from_session.append(isbn)
+                continue
+
+            valid_cart_items_exist = True
+            original_price_each = book.price
+            effective_price_each = original_price_each
+            item_has_discount = False
+
+            if is_current_user_vip:
+                effective_price_each = (original_price_each * VIP_DISCOUNT_RATE).quantize(Decimal('0.01'))
+                item_has_discount = True
+
+            subtotal_original_for_item = original_price_each * quantity
+            subtotal_effective_for_item = effective_price_each * quantity
+
+            grand_total_original += subtotal_original_for_item
+            grand_total_effective += subtotal_effective_for_item
+
+            cart_items_for_template.append({
+                'book': book,
+                'quantity': quantity,
+                'original_price_each': original_price_each,
+                'effective_price_each': effective_price_each,
+                'subtotal_effective': subtotal_effective_for_item,
+                'item_has_discount': item_has_discount,
+            })
+        except Book.DoesNotExist:
+            messages.warning(request, f"购物车中的书籍 (ISBN: {isbn}) 已不存在，已将其移除。")
+            items_to_remove_from_session.append(isbn)
+            continue
+        except (ValueError, TypeError):
+            messages.error(request, f"购物车中书籍 ISBN {isbn} 的数量信息有误，已移除。")
+            items_to_remove_from_session.append(isbn)
+            continue
+
+    if items_to_remove_from_session:
+        cart_modified = False
+        current_session_cart = request.session.get('cart', {})
+        for isbn_to_remove in items_to_remove_from_session:
+            if isbn_to_remove in current_session_cart:
+                del current_session_cart[isbn_to_remove]
+                cart_modified = True
+        if cart_modified:
+            request.session['cart'] = current_session_cart
+            request.session.modified = True
+
+    vip_discount_applied_on_cart = is_current_user_vip and valid_cart_items_exist and (
+                grand_total_effective < grand_total_original)
+
+    discount_amount_for_cart = Decimal('0.00')
+    if vip_discount_applied_on_cart:
+        discount_amount_for_cart = grand_total_original - grand_total_effective  # <--- 计算优惠金额
+
+    context = {
+        'cart_items': cart_items_for_template,
+        'total_original': grand_total_original,
+        'total_effective': grand_total_effective,
+        'is_vip_user': is_current_user_vip,
+        'vip_discount_applied_on_cart': vip_discount_applied_on_cart,  # 标记整个购物车是否应用了折扣
+        'discount_amount_cart': discount_amount_for_cart,  # <--- 将计算出的优惠金额传递给模板
+    }
+    return render(request, 'catalog/session_cart.html', context)
 
 
 def checkout(request):
     cart = get_cart(request)
+
     if cart is None or not cart.items.exists():
-        # messages.info(request, "您的购物车是空的。")
+        messages.info(request, "您的购物车是空的。")
         return redirect('view_cart')
 
     if request.method == 'POST':
@@ -126,140 +228,168 @@ def checkout(request):
             cleaned_data = form.cleaned_data
             name = cleaned_data.get('name')
             phone = cleaned_data.get('phone')
-            email = cleaned_data.get('email')
+            email_from_form = cleaned_data.get('email')
             password = cleaned_data.get('password')
             create_account = cleaned_data.get('create_account')
+            order_status_from_form = cleaned_data.get('status')
 
             order_customer = None
-            # new_user_created = False # 移到 try 块内部或作为 User 对象是否创建的标志
 
             if request.user.is_authenticated:
                 try:
                     order_customer = request.user.customer
-                    # （可选）如果表单中的信息与已存信息不同，是否更新 Customer 对象？
                     if order_customer.name != name or order_customer.phone != phone:
                         order_customer.name = name
                         order_customer.phone = phone
                         order_customer.save()
-                except Customer.DoesNotExist:  # 已认证用户但无Customer对象 (罕见，但需处理)
-                    # messages.warning(request, "无法找到您的顾客资料，将作为访客下单。")
-                    pass  # 或者在这里为已认证用户创建Customer
-                except AttributeError:  # e.g. superuser without customer
+                except Customer.DoesNotExist:
+                    order_customer = Customer.objects.create(user=request.user, name=name, phone=phone)
+                except AttributeError:
                     pass
+            elif create_account:
+                if not email_from_form:
+                    form.add_error('email', '如果您选择创建账户，电子邮箱是必填的。')
+                elif User.objects.filter(username=email_from_form).exists():  # 或 email=email_from_form 如果User模型用email登录
+                    form.add_error('email', '该电子邮箱已被注册。')
+                else:
+                    try:
+                        new_user = User.objects.create_user(username=email_from_form, email=email_from_form,
+                                                            password=password)
+                        order_customer = Customer.objects.create(user=new_user, name=name, phone=phone)
+                        login(request, new_user)
+                        messages.success(request, "账户创建成功并已自动登录！")
+                    except Exception as e:
+                        form.add_error(None, f"创建账户过程中发生系统错误: {e}")
 
+            if form.errors:  # 如果在上述逻辑中通过 form.add_error() 添加了错误
+                return render(request, 'catalog/checkout.html', {'form': form, 'cart': cart})
 
-            elif create_account:  # 仅当勾选了创建账户并且表单验证通过（包括邮箱和密码的必填）
-                try:
-                    new_user = User.objects.create_user(username=email, email=email, password=password)
-                    # 你可以在这里设置 new_user.first_name, new_user.last_name 等
-                    order_customer = Customer.objects.create(user=new_user, name=name, phone=phone)
-                    login(request, new_user)  # 创建并登录
-                    # messages.success(request, "账户创建成功并已自动登录！")
-                except Exception as e:  # 更具体的异常捕获更好
-                    # messages.error(request, f"创建账户时发生错误: {e}")
-                    # 这种情况下，错误应该由表单的 clean_email 捕获，这里是备用
-                    # 或者，如果错误不是由表单验证捕获的（例如数据库问题）
-                    # 重新渲染表单，可能需要添加一个通用错误到表单
-                    form.add_error(None, f"创建账户过程中发生系统错误: {e}")
-                    return render(request, 'catalog/checkout.html', {'form': form, 'cart': cart})
+            # ---- 创建订单 Order 和订单项 OrderItem (应用VIP折扣) ----
+            order_original_total = cart.original_total_amount
+            order_final_total = cart.total_amount
+            vip_discount_was_applied = cart.is_vip_discount_active
 
-            # ---- 创建订单 Order 和订单项 OrderItem ----
-            total_amount = cart.total_amount
-
-            new_order = Order(total_amount=total_amount, status='U')
-
-            if order_customer:
-                new_order.customer = order_customer
-            else:  # 匿名访客订单 (未登录且未选择创建账户)
-                new_order.guest_name = name
-                new_order.guest_phone = phone
-
-            new_order.save()
-
-            for cart_item in cart.items.all():
-                OrderItem.objects.create(
-                    order=new_order,
-                    book=cart_item.book,
-                    count=cart_item.quantity,
-                    price=cart_item.price_at_addition
+            with transaction.atomic():
+                new_order = Order(
+                    original_total_amount=order_original_total,
+                    final_total_amount=order_final_total,
+                    status=order_status_from_form,
+                    vip_discount_applied=vip_discount_was_applied
                 )
 
-            # 清空购物车逻辑 (示例)
-            if hasattr(cart, 'items') and cart.items.exists():  # 确保 cart.items 存在
-                cart.items.all().delete()
-            # 或者如果Cart对象本身是基于session并且不再需要，可以考虑删除Cart对象
-            # if not request.user.is_authenticated and cart.customer is None:
-            #     try:
-            #         del request.session['cart_id'] # 假设你用 cart_id 存在 session 中
-            #     except KeyError:
-            #         pass
-            #     cart.delete()
+                if order_customer:
+                    new_order.customer = order_customer
+                else:
+                    new_order.guest_name = name
+                    new_order.guest_phone = phone
 
-            # messages.success(request, f"订单 #{new_order.order_id} 已成功提交！")
-            return redirect('order_detail', pk=new_order.order_id)  # 假设你有这个URL name
+                new_order.save()
 
-        # else: 表单验证失败，会自动进入下面的render，form对象已包含错误信息
+                for cart_item_db in cart.items.all():
+                    OrderItem.objects.create(
+                        order=new_order,
+                        book=cart_item_db.book,
+                        count=cart_item_db.quantity,
+                        price=cart_item_db.effective_price_each,
+                        original_unit_price=cart_item_db.price_at_addition
+                    )
+                if hasattr(cart, 'items') and cart.items.exists():
+                    cart.items.all().delete()
+            messages.success(request, f"订单 #{new_order.order_id} 已成功提交！")
+            return redirect('order_detail', pk=new_order.order_id)
 
     else:  # GET 请求
-        initial_data_for_form = {}
+        initial_data_for_form = {'status': 'U'}
         if request.user.is_authenticated:
             try:
                 customer = request.user.customer
                 initial_data_for_form['name'] = customer.name
                 initial_data_for_form['phone'] = customer.phone
-                initial_data_for_form['email'] = request.user.email
             except Customer.DoesNotExist:
                 initial_data_for_form['name'] = request.user.get_full_name() or request.user.username
-                initial_data_for_form['email'] = request.user.email
-            except AttributeError:  # e.g. superuser
+                initial_data_for_form['phone'] = ""
+            except AttributeError:
                 initial_data_for_form['name'] = request.user.get_full_name() or request.user.username
-                initial_data_for_form['email'] = request.user.email
+                initial_data_for_form['phone'] = ""
+
         form = CheckoutForm(initial=initial_data_for_form)
 
     context = {
-        'form': form,  # 将表单实例传递给模板
+        'form': form,
         'cart': cart,
-        # 'form_name': initial_form_data.get('name', ''), # 这些不再需要，由表单处理
-        # 'form_phone': initial_form_data.get('phone', ''),
-        # 'form_email': initial_form_data.get('email', ''),
     }
     return render(request, 'catalog/checkout.html', context)
 
 
-# 辅助函数：获取购物车 (你需要根据你的实现来编写)
 def get_cart(request):
-    cart_id = request.session.get('cart_id')
-    if request.user.is_authenticated:
+    user = request.user
+    db_cart = None  # 这将是我们要返回的数据库 Cart 对象
+    session_cart_data = request.session.get('cart', {})  # 这是 add_to_cart 等视图操作的 session 字典
+
+    if user.is_authenticated:
         try:
-            customer = request.user.customer
-            cart, created = Cart.objects.get_or_create(customer=customer, defaults={
-                'session_key': request.session.session_key if not request.session.session_key else None})
-            # 如果用户登录了，并且session中有一个匿名购物车，你可能还想合并它们
-            if created and cart_id:
-                try:
-                    session_cart = Cart.objects.get(id=cart_id, customer__isnull=True)
-                    # 合并逻辑...
-                except Cart.DoesNotExist:
-                    pass
-
-        except Customer.DoesNotExist:  # 用户已认证但没有Customer对象
-            cart, created = Cart.objects.get_or_create(
-                session_key=request.session.session_key or request.session.create())
-            if created and not request.session.session_key:
-                request.session['cart_id'] = cart.cart_id
-        except AttributeError:  # 例如超级用户
-            cart, created = Cart.objects.get_or_create(
-                session_key=request.session.session_key or request.session.create())
-
+            customer, _ = Customer.objects.get_or_create(user=user, defaults={'name': user.username, 'phone': ''})
+            db_cart, cart_created = Cart.objects.get_or_create(customer=customer)
+        except Exception as e:  # 更通用的异常捕获，例如处理非 Customer 用户类型
+            if not request.session.session_key:
+                request.session.create()
+            session_key_for_fallback = request.session.session_key
+            db_cart, cart_created = Cart.objects.get_or_create(session_key=session_key_for_fallback,
+                                                               customer__isnull=True)
     else:  # 匿名用户
         if not request.session.session_key:
             request.session.create()
         session_key = request.session.session_key
-        cart, created = Cart.objects.get_or_create(session_key=session_key, customer__isnull=True)
-        if created:
-            request.session['cart_id'] = cart.cart_id
+        db_cart, cart_created = Cart.objects.get_or_create(session_key=session_key, customer__isnull=True)
 
-    return cart
+    if session_cart_data and db_cart:  # 确保 db_cart 已成功获取或创建
+        items_were_merged = False
+        with transaction.atomic():  # 使用数据库事务确保数据一致性
+            for isbn, item_details in list(session_cart_data.items()):  # 用 list() 复制，以便在循环中删除
+                try:
+                    book = Book.objects.get(isbn=isbn)
+                    quantity_from_session = int(item_details.get('quantity', 0))
+
+                    if quantity_from_session <= 0:
+                        # 如果 session 中的数量无效，可以从 session 字典中移除
+                        del request.session['cart'][isbn]
+                        items_were_merged = True  # 标记 session 有变动
+                        continue
+
+                    # 获取或创建数据库 CartItem
+                    cart_item_db, item_db_created = db_cart.items.get_or_create(
+                        book=book,
+                        defaults={
+                            'quantity': quantity_from_session,
+                            'price_at_addition': book.price  # 记录添加时的价格
+                        }
+                    )
+
+                    if not item_db_created:
+                        cart_item_db.quantity += quantity_from_session  # 改为累加，与 add_to_cart 字典行为一致
+                        cart_item_db.price_at_addition = book.price  # 更新价格，以防变动
+                        cart_item_db.save()
+
+                    items_were_merged = True
+
+                except Book.DoesNotExist:
+                    if isbn in request.session['cart']:
+                        del request.session['cart'][isbn]
+                    items_were_merged = True  # 标记 session 有变动
+                    continue
+                except ValueError:  # quantity 转换 int 失败
+                    if isbn in request.session['cart']:
+                        del request.session['cart'][isbn]
+                    items_were_merged = True  # 标记 session 有变动
+                    continue
+
+        if items_were_merged:
+            # 如果发生了合并或清理，清空原始的 session 字典购物车部分，并标记 session 已修改
+            # 实际上，在循环中逐个删除后，这里可以直接设为空字典
+            request.session['cart'] = {}  # 清空，因为所有内容都已尝试合并到数据库
+            request.session.modified = True
+
+    return db_cart
 
 
 def update_cart(request):
@@ -296,11 +426,105 @@ def clear_cart(request):
 
 def signup_view(request):
     if request.method == 'POST':
-        form = CustomUserCreationForm(request.POST)  # 使用自定义表单
+        form = CustomUserCreationForm(request.POST)
         if form.is_valid():
-            user = form.save()
-            login(request, user)
-            return redirect('index')  # 修改为你的首页 URL name
-    else:
-        form = CustomUserCreationForm()  # 使用自定义表单
+            user = form.save()  # 保存 User 对象
+
+            # 从验证通过的表单中获取电话号码
+            phone_number_from_form = form.cleaned_data.get('phone')
+
+            # ---- 为新用户创建 Customer 对象 ----
+            try:
+                Customer.objects.create(
+                    user=user,
+                    name=user.get_full_name() or user.username,
+                    phone=phone_number_from_form,
+                    vip_status=False
+                )
+                messages.success(request, "注册成功！已为您创建客户资料，并保存了电话号码。")
+            except Exception as e:
+                messages.error(request, f"注册成功，但创建客户资料时发生错误，请联系管理员。错误详情: {e}")
+
+            login(request, user)  # 自动登录新注册的用户
+            return redirect('index')  # 跳转到首页
+        else:
+            messages.error(request, "注册失败，请检查您填写的信息是否有误。")
+    else:  # GET 请求
+        form = CustomUserCreationForm()
     return render(request, 'registration/signup.html', {'form': form})
+
+
+@login_required
+def edit_profile_view(request):
+    # 例如：customer = request.user.customer (如果User有customer属性)
+    # 或者：customer = get_object_or_404(Customer, user=request.user)
+
+    try:
+        # 假设Customer模型有一个user字段关联到Django的User模型
+        customer_instance = request.user.customer
+    except Customer.DoesNotExist:
+        # 处理用户没有关联Customer实例的情况，可能需要创建或给出提示
+        # 例如，如果是新用户，可以考虑在这里创建一个关联的Customer实例
+        # customer_instance = Customer.objects.create(user=request.user, name=request.user.get_full_name() or request.user.username)
+        messages.warning(request, '您的客户资料不存在，可能需要先创建。')
+        return redirect('index')
+
+    if request.method == 'POST':
+        form = CustomerProfileForm(request.POST, instance=customer_instance)
+        if form.is_valid():
+            form.save()
+            messages.success(request, '您的个人资料已成功更新！')
+            return redirect('profile_edit')  # 或其他成功后跳转的页面
+    else:
+        form = CustomerProfileForm(instance=customer_instance)
+
+    return render(request, 'catalog/profile.html', {'form': form})
+
+
+def simplified_forgot_password_request_view(request):
+    if request.method == 'POST':
+        form = UsernameInputForm(request.POST)
+        if form.is_valid():
+            username = form.cleaned_data['username']
+            # 将用户名存储在 session 中，以便传递给下一个视图
+            request.session['reset_password_for_username'] = username
+            messages.info(request, f"准备为用户 '{username}' 重置密码。")
+            return redirect('simplified_set_new_password')  # 跳转到设置新密码的URL name
+    else:
+        form = UsernameInputForm()
+    return render(request, 'registration/simplified_forgot_password_request.html', {'form': form})
+
+
+def simplified_set_new_password_view(request):
+    username_to_reset = request.session.get('reset_password_for_username')
+
+    if not username_to_reset:
+        messages.error(request, "无法处理密码重置请求，请从第一步开始。")
+        return redirect('simplified_forgot_password_request')
+
+    try:
+        user_to_reset = User.objects.get(username=username_to_reset)
+    except User.DoesNotExist:
+        messages.error(request, f"用户 '{username_to_reset}' 不存在。")
+        if 'reset_password_for_username' in request.session:
+            del request.session['reset_password_for_username']
+        return redirect('simplified_forgot_password_request')
+
+    if request.method == 'POST':
+        form = CustomSetPasswordForm(user_to_reset, request.POST)  # <--- 使用您的自定义表单
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"用户 '{username_to_reset}' 的密码已成功重置。请使用新密码登录。")
+            if 'reset_password_for_username' in request.session:
+                del request.session['reset_password_for_username']
+            return redirect('login')
+        else:
+            messages.error(request, "设置新密码失败，请检查您输入的内容。")
+    else:
+        form = CustomSetPasswordForm(user_to_reset)  # <--- 使用您的自定义表单
+
+    context = {
+        'form': form,
+        'username': username_to_reset
+    }
+    return render(request, 'registration/simplified_set_new_password.html', context)

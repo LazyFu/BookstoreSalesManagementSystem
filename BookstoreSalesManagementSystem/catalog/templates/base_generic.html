@@ -38,41 +38,37 @@
     <div class="row">
         <div class="col-sm-2">
             {% block sidebar %}
-            <ul class="sidebar-nav">
-                <li><a href="{% url 'index' %}">首页</a></li>
-                <li><a href="{% url 'books' %}">所有书籍</a></li>
-                <li><a href="{% url 'view_cart' %}">购物车</a></li>
+                <ul class="sidebar-nav">
+                    <li><a href="{% url 'index' %}">首页</a></li>
+                    <li><a href="{% url 'books' %}">所有书籍</a></li>
+                    <li><a href="{% url 'view_cart' %}">购物车</a></li>
 
-                {% if user.is_authenticated %}
-                {# 用户已登录 #}
-                <li>
-                    <hr>
-                </li>
-                {# 分隔线 #}
-                <li><span>你好, {{ user.username }}!</span></li>
-                <li><a href="{% url 'orders' %}">我的订单</a></li>
-                {# 指向用户的订单列表 #}
-                {# 添加用户个人资料便于更改#}
-                {#
-                <li><a href="{% url 'profile' %}">个人资料</a></li>
-                #}
-                <li>
-                    <form id="logout-form" method="post" action="{% url 'logout' %}" style="display: inline;">
-                        {% csrf_token %}
-                        <button type="submit" class="nav-link-button">登出</button>
-                    </form>
-                </li>
-                {% else %}
-                {# 用户未登录 #}
-                <li>
-                    <hr>
-                </li>
-                {# 分隔线 #}
-                <li><a href="{% url 'login' %}">登录</a></li>
-                <li><a href="{% url 'signup' %}">注册</a></li>
-                {# 确保你有这个URL name #}
-                {% endif %}
-            </ul>
+                    {% if user.is_authenticated %}
+                        {# 用户已登录 #}
+                        <li>
+                            <hr>
+                        </li>
+                        {# 分隔线 #}
+                        <li><span>你好, {{ user.username }}!</span></li>
+                        <li><a href="{% url 'orders' %}">我的订单</a></li>
+                        <li><a href="{% url 'profile_edit' %}">个人资料</a></li>
+                        <li>
+                            <form id="logout-form" method="post" action="{% url 'logout' %}" style="display: inline;">
+                                {% csrf_token %}
+                                <button type="submit" class="nav-link-button">登出</button>
+                            </form>
+                        </li>
+                    {% else %}
+                        {# 用户未登录 #}
+                        <li>
+                            <hr>
+                        </li>
+                        {# 分隔线 #}
+                        <li><a href="{% url 'login' %}">登录</a></li>
+                        <li><a href="{% url 'signup' %}">注册</a></li>
+                        {# 确保你有这个URL name #}
+                    {% endif %}
+                </ul>
             {% endblock %}
         </div>
         <div class="col-sm-10">
