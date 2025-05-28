@@ -9,6 +9,7 @@ from django.shortcuts import render, redirect
 from .forms import *
 from .models import Book, Order, OrderItem, Customer, Cart
 from django.views import generic
+
 VIP_DISCOUNT_RATE = Decimal('0.9')
 
 
@@ -211,9 +212,9 @@ def view_cart(request):
 def checkout(request):
     cart = get_cart(request)
 
-    if cart is None or not cart.items.exists():
+    if cart is None or not cart.items.exists():  # 或者你的购物车判空逻辑
         messages.info(request, "您的购物车是空的。")
-        return redirect('view_cart')
+        return redirect('view_cart')  # 假设 'view_cart' 是你的购物车页面URL名称
 
     if request.method == 'POST':
         form = CheckoutForm(request.POST)
@@ -221,86 +222,103 @@ def checkout(request):
             cleaned_data = form.cleaned_data
             name = cleaned_data.get('name')
             phone = cleaned_data.get('phone')
-            email_from_form = cleaned_data.get('email')
-            password = cleaned_data.get('password')
-            create_account = cleaned_data.get('create_account')
+            # email_from_form = cleaned_data.get('email') # 如果你在表单中加回了 email 字段
             order_status_from_form = cleaned_data.get('status')
 
-            order_customer = None
+            order_customer = None  # 用于关联已登录用户
 
             if request.user.is_authenticated:
                 try:
-                    order_customer = request.user.customer
+                    order_customer = request.user.customer  # Customer 与 User 是 OneToOne
+                    # 如果表单中的姓名或电话与已存的不同，则更新 Customer 信息
                     if order_customer.name != name or order_customer.phone != phone:
                         order_customer.name = name
                         order_customer.phone = phone
                         order_customer.save()
                 except Customer.DoesNotExist:
+                    # 如果认证用户没有 Customer 对象，则为他们创建一个
                     order_customer = Customer.objects.create(user=request.user, name=name, phone=phone)
                 except AttributeError:
-                    pass
-            elif create_account:
-                if not email_from_form:
-                    form.add_error('email', '如果您选择创建账户，电子邮箱是必填的。')
-                elif User.objects.filter(username=email_from_form).exists():  # 或 email=email_from_form 如果User模型用email登录
-                    form.add_error('email', '该电子邮箱已被注册。')
-                else:
-                    try:
-                        new_user = User.objects.create_user(username=email_from_form, email=email_from_form,
-                                                            password=password)
-                        order_customer = Customer.objects.create(user=new_user, name=name, phone=phone)
-                        login(request, new_user)
-                        messages.success(request, "账户创建成功并已自动登录！")
-                    except Exception as e:
-                        form.add_error(None, f"创建账户过程中发生系统错误: {e}")
+                    # 一般不应发生，除非 request.user 不是标准的 User 对象或 Customer 关系设置问题
+                    # 为安全起见，可以记录此情况，但订单仍可尝试作为游客订单处理（如果 order_customer 为 None）
+                    messages.error(request, "处理您的账户信息时发生错误，请联系支持。")
+                    # 也可以选择不允许下单：
+                    # return render(request, 'catalog/checkout.html', {'form': form, 'cart': cart})
 
-            if form.errors:  # 如果在上述逻辑中通过 form.add_error() 添加了错误
+            # ---- 移除了为游客创建账户 (elif create_account:) 的逻辑 ----
+            # 现在，如果 request.user.is_authenticated 为 False, order_customer 将保持为 None
+            # 订单将作为游客订单处理
+
+            # 如果之前的 form.add_error() 仅用于账户创建，那么这里的 form.errors 检查也可以简化
+            # 但保留它以防 CheckoutForm 本身有其他验证可能添加错误
+            if form.errors:
                 return render(request, 'catalog/checkout.html', {'form': form, 'cart': cart})
 
-            # ---- 创建订单 Order 和订单项 OrderItem (应用VIP折扣) ----
-            order_original_total = cart.original_total_amount
+            # ---- 创建订单 Order 和订单项 OrderItem ----
+            order_original_total = cart.original_total_amount  # 确保 cart 对象有这些属性
             order_final_total = cart.total_amount
             vip_discount_was_applied = cart.is_vip_discount_active
 
-            with transaction.atomic():
-                new_order = Order(
-                    original_total_amount=order_original_total,
-                    final_total_amount=order_final_total,
-                    status=order_status_from_form,
-                    vip_discount_applied=vip_discount_was_applied
-                )
-
-                if order_customer:
-                    new_order.customer = order_customer
-                else:
-                    new_order.guest_name = name
-                    new_order.guest_phone = phone
-
-                new_order.save()
-
-                for cart_item_db in cart.items.all():
-                    OrderItem.objects.create(
-                        order=new_order,
-                        book=cart_item_db.book,
-                        count=cart_item_db.quantity,
-                        price=cart_item_db.effective_price_each,
-                        original_unit_price=cart_item_db.price_at_addition
+            try:
+                with transaction.atomic():
+                    new_order = Order(
+                        original_total_amount=order_original_total,
+                        final_total_amount=order_final_total,
+                        status=order_status_from_form,  # 例如 'U'
+                        vip_discount_applied=vip_discount_was_applied
                     )
-                if hasattr(cart, 'items') and cart.items.exists():
-                    cart.items.all().delete()
-            messages.success(request, f"订单 #{new_order.order_id} 已成功提交！")
-            return redirect('order_detail', pk=new_order.order_id)
+
+                    if order_customer:  # 如果用户已登录且 Customer 对象存在
+                        new_order.customer = order_customer
+                        # 对于已登录用户，通常不需要重复存储 guest_name/phone 到订单自身
+                        # 但如果你的 Order 模型设计如此，也可以设置
+                    else:  # 用户未登录 (游客订单)
+                        new_order.guest_name = name
+                        new_order.guest_phone = phone
+                        # if email_from_form: # 如果表单收集了游客邮箱
+                        #     new_order.guest_email = email_from_form
+
+                    new_order.save()
+
+                    for cart_item_db in cart.items.all():  # 假设 cart.items.all() 返回 CartItem 实例
+                        OrderItem.objects.create(
+                            order=new_order,
+                            book=cart_item_db.book,
+                            count=cart_item_db.quantity,
+                            price=cart_item_db.effective_price_each,  # 确保 CartItem 有这些字段
+                            original_unit_price=cart_item_db.price_at_addition
+                        )
+
+                    # 订单成功创建后清空购物车
+                    # 具体实现方式取决于你的购物车是如何工作的
+                    if hasattr(cart, 'items') and hasattr(cart.items, 'all'):  # 如果items是QuerySet
+                        cart.items.all().delete()  # 删除购物车中的商品项
+                    # 你可能还需要将购物车标记为非活动或删除购物车本身，或清除session中的cart_id
+                    # e.g., cart.active = False; cart.save()
+                    if 'cart_id' in request.session and not request.user.is_authenticated:
+                        # 对于游客，可以考虑清除其session中的cart_id，以便下次访问时获得新购物车
+                        del request.session['cart_id']
+
+                messages.success(request, f"订单 #{new_order.order_id} 已成功提交！")  # 假设 Order 有 order_id
+                return redirect('order_detail', pk=new_order.order_id)  # 假设 'order_detail' 是订单详情页的URL名
+            except Exception as e:
+                messages.error(request, f"创建订单过程中发生系统错误: {e}")
+                # 记录错误 e
+                form.add_error(None, f"订单提交失败，请稍后重试或联系客服。错误: {e}")
+                # 重新渲染表单，保留用户已填写的数据和购物车信息
 
     else:  # GET 请求
-        initial_data_for_form = {'status': 'U'}
+        initial_data_for_form = {'status': 'U'}  # 或 Order.PENDING_PAYMENT_STATUS_CONSTANT
         if request.user.is_authenticated:
             try:
                 customer = request.user.customer
                 initial_data_for_form['name'] = customer.name
                 initial_data_for_form['phone'] = customer.phone
+                # if hasattr(customer, 'email'): initial_data_for_form['email'] = customer.email
             except Customer.DoesNotExist:
                 initial_data_for_form['name'] = request.user.get_full_name() or request.user.username
-                initial_data_for_form['phone'] = ""
+                # initial_data_for_form['email'] = request.user.email
+                initial_data_for_form['phone'] = ""  # User 模型通常没有 phone
             except AttributeError:
                 initial_data_for_form['name'] = request.user.get_full_name() or request.user.username
                 initial_data_for_form['phone'] = ""
@@ -311,7 +329,7 @@ def checkout(request):
         'form': form,
         'cart': cart,
     }
-    return render(request, 'catalog/checkout.html', context)
+    return render(request, 'catalog/checkout.html', context)  # 你的结账页面模板
 
 
 def get_cart(request):
