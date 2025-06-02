@@ -3,15 +3,28 @@
 {% block content %}
   <h1>书籍列表</h1>
 
+  {# 添加搜索表单 #}
+  <form method="get" action="{% url 'books' %}">
+    <input type="text" name="q" placeholder="搜索书名或作者..." value="{{ query }}">
+    <button type="submit">搜索</button>
+  </form>
+  <br> {# 添加一点间距 #}
+
   {% if book_list %}
     <ul>
       {% for book in book_list %}
         <li>
-          <a href="{{ book.get_absolute_url }}">{{ book.title }}</a> ({{book.author}})
+          {# 假设您的 Book 模型中 author 字段可以直接显示，或者是一个指向 Author 模型的 ForeignKey #}
+          {# 如果 author 是 ForeignKey，您可能希望显示 author.name 或类似的字段 #}
+          <a href="{{ book.get_absolute_url }}">{{ book.title }}</a> ({{ book.author }})
         </li>
       {% endfor %}
     </ul>
   {% else %}
-    <p>现在书店没有书籍了。</p>
+    {% if query %}
+      <p>没有找到与 “{{ query }}” 相关的书籍。</p>
+    {% else %}
+      <p>现在书店没有书籍了。</p>
+    {% endif %}
   {% endif %}
 {% endblock %}
