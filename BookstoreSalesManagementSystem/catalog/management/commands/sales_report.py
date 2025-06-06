@@ -7,7 +7,7 @@ from decimal import Decimal
 from django.conf import settings  # 用于可能的路径配置
 
 # 假设您的模型在 catalog 应用中
-from catalog.models import Book, Order, OrderItem, Customer
+from catalog.models import Order, OrderItem
 
 
 # --- 辅助函数：计算日期范围 ---
