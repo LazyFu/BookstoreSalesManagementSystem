@@ -20,13 +20,13 @@ cd BookstoreSalesManagementSystem
 python3 manage.py makemigrations
 python3 manage.py migrate
 python3 manage.py import_books data/data.json
-# 创建用户
+# 创建管理员用户
 python3 manage.py createsuperuser
 # 运行服务器
 python3 manage.py runserver
 ```
 
-- 在网页`127.0.0.1`可以看到主界面
+- 在网页`127.0.0.1:8000`可以看到主界面
 
 - 在网页`127.0.0.1:8000/admin`进入管理员界面
 
